@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>MapChap – выгодные условия рядом</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1e1e1e">
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+        #map { width: 100%; height: 100%; }
+        /* Скрываем всё, что связано с Яндексом */
+        .ymaps-2-1-79-copyright,
+        .ymaps-2-1-79-map-copyrights-promo,
+        .ymaps-2-1-79-controls__control,
+        .ymaps-2-1-79-controls__bottom,
+        .ymaps-2-1-79-controls__toolbar,
+        ymaps[class*="copyright"],
+        ymaps[class*="control"],
+        .ymaps-2-1-79-route-panel,
+        .ymaps-2-1-79-multiroute__panel {
+            display: none !important;
+        }
+        .dark-map {
+            filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.9);
+        }
+        .logo {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(30,30,30,0.85);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 20px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .logo::before { content: "📍 "; }
+        .locate-btn {
+            position: absolute;
+            bottom: 110px;
+            right: 15px;
+            z-index: 1000;
+            width: 44px;
+            height: 44px;
+            background: rgba(30,30,30,0.8);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            user-select: none;
+        }
+        .locate-btn:active { background: rgba(50,50,50,0.9); }
+        .category-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            gap: 6px;
+            background: rgba(30,30,30,0.85);
+            backdrop-filter: blur(4px);
+            padding: 6px 10px;
+            border-radius: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+            flex-wrap: wrap;
+            justify-content: center;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .cat-btn {
+            border: none;
+            background: transparent;
+            color: #ccc;
+            border-radius: 15px;
+            padding: 6px 14px;
+            font-size: 14px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        .cat-btn.active { background: #007bff; color: white; }
+        .pulse-marker {
+            width: 20px;
+            height: 20px;
+            background: #007bff;
+            border-radius: 50%;
+            position: relative;
+        }
+        .pulse-marker::before {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: -5px;
+            right: -5px;
+            bottom: -5px;
+            background: rgba(0,123,255,0.4);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.8); opacity: 1; }
+            50% { transform: scale(1.8); opacity: 0; }
+            100% { transform: scale(0.8); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="logo">MapChap</div>
+    <div id="map" class="dark-map"></div>
+    <div class="locate-btn" onclick="centerToUser()" title="Моё местоположение">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <circle cx="12" cy="12" r="3"></circle>
+            <line x1="12" y1="2" x2="12" y2="6"></line>
+            <line x1="12" y1="18" x2="12" y2="22"></line>
+            <line x1="2" y1="12" x2="6" y2="12"></line>
+            <line x1="18" y1="12" x2="22" y2="12"></line>
+        </svg>
+    </div>
+    <div class="category-bar" id="categoryBar">
+        <button class="cat-btn active" data-cat="all">Все</button>
+        <button class="cat-btn" data-cat="beauty">Салон красоты</button>
+        <button class="cat-btn" data-cat="auto">Автоуслуги</button>
+        <button class="cat-btn" data-cat="med">Медцентр</button>
+        <button class="cat-btn" data-cat="pharmacy">Аптека</button>
+        <button class="cat-btn" data-cat="clothes">Магазин одежды</button>
+        <button class="cat-btn" data-cat="grocery">Магазин продуктов</button>
+        <button class="cat-btn" data-cat="electronics">Магазин техники</button>
+        <button class="cat-btn" data-cat="appliances">Магазин бытовой техники</button>
+    </div>
+
+    <script src="https://api-maps.yandex.ru/2.1/?apikey=07b74146-5f5a-46bf-a2b1-cf6d052a41bb&lang=ru_RU"></script>
+    <script>
+        const API_URL = 'https://your-api.onrender.com/api/places'; // ⚠️ Замени на свой Render URL
+        let map, userCoords, allPlaces = [];
+        let userMarker = null;
+        let currentRoute = null;
+        let watchId = null;
+
+        const categoryColors = {
+            beauty: 'violet',
+            auto: 'blue',
+            med: 'red',
+            pharmacy: 'green',
+            clothes: 'orange',
+            grocery: 'yellow',
+            electronics: 'cyan',
+            appliances: 'brown'
+        };
+
+        function startWatchingPosition() {
+            if (!navigator.geolocation) return;
+            watchId = navigator.geolocation.watchPosition(
+                pos => {
+                    userCoords = [pos.coords.latitude, pos.coords.longitude];
+                    updateUserMarker(pos.coords.heading);
+                },
+                err => console.warn('Ошибка геолокации:', err.message),
+                { enableHighAccuracy: true, maximumAge: 0 }
+            );
+        }
+
+        function updateUserMarker(heading) {
+            if (!userCoords) return;
+            if (userMarker) map.geoObjects.remove(userMarker);
+            let iconLayout;
+            if (heading != null) {
+                const rotation = heading;
+                iconLayout = ymaps.templateLayoutFactory.createClass(
+                    `<svg width="36" height="36" viewBox="-18 -18 36 36" style="transform: rotate(${rotation}deg);">
+                        <circle cx="0" cy="0" r="16" fill="none" stroke="rgba(0,123,255,0.4)" stroke-width="4"/>
+                        <polygon points="0,-14 8,10 -8,10" fill="white" stroke="rgb(0,123,255)" stroke-width="2"/>
+                        <circle cx="0" cy="0" r="4" fill="rgb(0,123,255)"/>
+                    </svg>`
+                );
+            } else {
+                iconLayout = ymaps.templateLayoutFactory.createClass(
+                    '<div class="pulse-marker"></div>'
+                );
+            }
+            userMarker = new ymaps.Placemark(userCoords, {}, {
+                iconLayout: 'default#imageWithContent',
+                iconContentLayout: iconLayout,
+                iconImageSize: [36, 36],
+                iconImageOffset: [-18, -18],
+                zIndex: 100
+            });
+            map.geoObjects.add(userMarker);
+        }
+
+        function initMap() {
+            map = new ymaps.Map('map', {
+                center: [55.76, 37.64],
+                zoom: 13,
+                controls: [],
+                suppressMapOpenBlock: true
+            });
+            const removeYmElements = () => {
+                document.querySelectorAll('.ymaps-2-1-79-copyright, .ymaps-2-1-79-map-copyrights-promo, .ymaps-2-1-79-route-panel, .ymaps-2-1-79-multiroute__panel').forEach(el => {
+                    el.style.display = 'none';
+                    el.remove();
+                });
+            };
+            setTimeout(removeYmElements, 200);
+            map.events.add('boundschange', removeYmElements);
+            startWatchingPosition();
+            loadPlaces();
+        }
+
+        async function loadPlaces() {
+            try {
+                const res = await fetch(API_URL);
+                allPlaces = await res.json();
+                renderMarkers('all');
+            } catch (e) {
+                console.error('Не удалось загрузить предложения', e);
+            }
+        }
+
+        function renderMarkers(filterCat) {
+            if (currentRoute) {
+                map.geoObjects.remove(currentRoute);
+                currentRoute = null;
+            }
+            map.geoObjects.removeAll();
+            if (userCoords) updateUserMarker(userCoords.heading);
+            const filtered = filterCat === 'all' 
+                ? allPlaces 
+                : allPlaces.filter(p => p.category === filterCat);
+            filtered.forEach(place => {
+                const coords = [place.lat, place.lng];
+                const colorPreset = categoryColors[place.category] 
+                    ? `islands#${categoryColors[place.category]}Icon` 
+                    : 'islands#blueIcon';
+                const marker = new ymaps.Placemark(coords, {
+                    balloonContentHeader: place.name,
+                    balloonContentBody: `
+                        <p>${place.description}</p>
+                        <p><b>Скидка: ${place.discount}</b></p>
+                        <button onclick="buildRouteTo([${place.lat}, ${place.lng}])" style="padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">🚶 Проложить маршрут</button>
+                    `,
+                    hintContent: place.name
+                }, { preset: colorPreset });
+                map.geoObjects.add(marker);
+            });
+        }
+
+        function buildRouteTo(targetCoords) {
+            if (!userCoords) {
+                alert('Сначала определите ваше местоположение.');
+                return;
+            }
+            if (currentRoute) map.geoObjects.remove(currentRoute);
+            currentRoute = new ymaps.multiRouter.MultiRoute({
+                referencePoints: [userCoords, targetCoords],
+                params: { routingMode: 'pedestrian' }
+            }, {
+                viaPointsVisible: false,
+                waypointsVisible: false,
+                boundsAutoApply: true
+            });
+            map.geoObjects.add(currentRoute);
+        }
+
+        function centerToUser() {
+            if (userCoords) {
+                map.setCenter(userCoords, 15, { duration: 300 });
+            } else {
+                alert('Геолокация пока недоступна. Разрешите доступ в браузере.');
+            }
+        }
+
+        document.getElementById('categoryBar').addEventListener('click', e => {
+            if (e.target.classList.contains('cat-btn')) {
+                document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                renderMarkers(e.target.dataset.cat);
+            }
+        });
+
+        ymaps.ready(initMap);
+    </script>
+</body>
+</html>
