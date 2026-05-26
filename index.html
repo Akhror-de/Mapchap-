@@ -173,7 +173,7 @@
     <div class="modal" id="infoModal">
         <div class="modal-content glass">
             <h3>О приложении</h3>
-            <p>MapChap помогает находить выгодные предложения рядом. Предприниматели добавляют акции через Telegram-бота. Запрещены темы войны, оружия, политики, наркотиков и финансовых пирамид.</p>
+            <p>MapChap помогает находить выгодные предложения рядом. Предприниматели добавляют акции через Telegram-бота. Мы строго следим за контентом: запрещены темы войны, оружия, политики, наркотиков и финансовых пирамид.</p>
             <p>Добавить своё предложение: <a href="https://t.me/mapchaps_bot" target="_blank">@mapchaps_bot</a></p>
             <button class="close-modal" onclick="closeInfo()">Понятно</button>
         </div>
@@ -196,14 +196,12 @@
             maxZoom: 19
         });
 
-        // Цвета категорий для иконок (используем Leaflet.extra-markers или простые circle)
         const categoryColors = {
             beauty: '#8B00FF', auto: '#0000FF', med: '#FF0000', pharmacy: '#008000',
             clothes: '#FFA500', grocery: '#FFFF00', electronics: '#00FFFF',
             appliances: '#8B4513', flowers: '#FF69B4', restaurant: '#FF7F50', cafe: '#8B4513'
         };
 
-        // Инициализация карты
         function initMap() {
             map = L.map('map', {
                 center: [55.76, 37.64],
@@ -212,7 +210,6 @@
                 attributionControl: false
             });
             darkLayer.addTo(map);
-            // Добавим zoom control справа, незаметно
             L.control.zoom({ position: 'topright' }).addTo(map);
 
             startWatchingPosition();
@@ -220,7 +217,6 @@
             setupCompass();
         }
 
-        // Геолокация
         function startWatchingPosition() {
             if (!navigator.geolocation) return;
             navigator.geolocation.watchPosition(
@@ -236,7 +232,6 @@
             );
         }
 
-        // Компас (deviceorientation)
         function setupCompass() {
             if ('ondeviceorientationabsolute' in window) {
                 window.addEventListener('deviceorientationabsolute', (e) => {
@@ -250,27 +245,23 @@
             }
         }
 
-        // Обновление маркера пользователя с компасом
         function updateUserMarker() {
             if (!userCoords) return;
             if (userMarker) map.removeLayer(userMarker);
 
             let iconUrl;
             if (currentHeading != null) {
-                // Генерируем SVG стрелку с поворотом
                 const encoded = encodeURIComponent(`<svg width="44" height="44" viewBox="-22 -22 44 44" xmlns="http://www.w3.org/2000/svg"><circle cx="0" cy="0" r="20" fill="none" stroke="rgba(0,123,255,0.5)" stroke-width="3"/><polygon points="0,-18 10,14 -10,14" fill="white" stroke="#007bff" stroke-width="2"/><circle cx="0" cy="0" r="6" fill="#007bff"/></svg>`);
                 iconUrl = `data:image/svg+xml;utf8,${encoded}`;
                 const icon = L.icon({
                     iconUrl: iconUrl,
                     iconSize: [44, 44],
-                    iconAnchor: [22, 22],
-                    rotation: currentHeading  // Leaflet не поддерживает rotation из коробки, используем CSS-трансформацию
+                    iconAnchor: [22, 22]
                 });
                 userMarker = L.marker(userCoords, { icon: icon, zIndexOffset: 1000 }).addTo(map);
-                // Применяем поворот через стиль
                 userMarker._icon.style.transform = `rotate(${currentHeading}deg)`;
+                userMarker._icon.style.transition = 'transform 0.3s';
             } else {
-                // Пульсирующая точка через div
                 const icon = L.divIcon({
                     className: 'pulse-icon',
                     html: '<div class="pulse-marker"></div>',
@@ -281,7 +272,6 @@
             }
         }
 
-        // Загрузка предложений
         async function loadPlaces() {
             try {
                 const res = await fetch(API_URL);
@@ -290,11 +280,8 @@
             } catch (e) { console.error(e); }
         }
 
-        // Рендер маркеров по категории
         function renderMarkers(filterCat) {
-            // Удаляем старый маршрут
             if (currentRoute) { map.removeControl(currentRoute); currentRoute = null; }
-            // Удаляем старые маркеры (кроме пользователя)
             map.eachLayer(layer => {
                 if (layer instanceof L.Marker && layer !== userMarker) {
                     map.removeLayer(layer);
@@ -314,16 +301,17 @@
                     fillOpacity: 0.8
                 }).addTo(map);
 
-                marker.bindPopup(`
-                    <b>${place.name}</b><br>
-                    ${place.description}<br>
-                    <b>Скидка: ${place.discount}</b><br>
-                    <button onclick="buildRouteTo([${place.lat},${place.lng}])" style="padding:4px 10px; background:#007bff; color:white; border:none; border-radius:15px;">🚶 Маршрут</button>
-                `);
+                let popupContent = `<b>${place.name}</b><br>${place.description}<br><b>Скидка: ${place.discount}</b><br>`;
+                if (place.expiry) {
+                    const expiryDate = new Date(place.expiry.replace(' ', 'T'));
+                    popupContent += `<i>Действует до: ${expiryDate.toLocaleString('ru-RU')}</i><br>`;
+                }
+                popupContent += `<button onclick="buildRouteTo([${place.lat},${place.lng}])" style="padding:4px 10px; background:#007bff; color:white; border:none; border-radius:15px;">🚶 Маршрут</button>`;
+
+                marker.bindPopup(popupContent);
             });
         }
 
-        // Построение маршрута через OSRM
         function buildRouteTo(targetCoords) {
             if (!userCoords) { alert('Сначала определите местоположение.'); return; }
             if (currentRoute) map.removeControl(currentRoute);
@@ -338,7 +326,7 @@
                 lineOptions: {
                     styles: [{ color: '#007bff', opacity: 0.8, weight: 6 }]
                 },
-                createMarker: function() { return null; } // не создаём лишние маркеры
+                createMarker: function() { return null; }
             }).addTo(map);
         }
 
@@ -367,7 +355,7 @@
             if (e.target === this) closeInfo();
         });
 
-        // Небольшой CSS для пульсации (добавим в head)
+        // Пульсация для случая без компаса
         const style = document.createElement('style');
         style.textContent = `
             .pulse-marker {
@@ -392,7 +380,6 @@
         `;
         document.head.appendChild(style);
 
-        // Старт
         document.addEventListener('DOMContentLoaded', initMap);
     </script>
 </body>
