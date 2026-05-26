@@ -6,15 +6,14 @@
     <title>MapChap – выгодные условия рядом</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1e1e1e">
-    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- Leaflet Routing Machine CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
     <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
         #map { width: 100%; height: 100%; background: #111; }
 
+        /* Стили стекла */
         .glass {
             background: rgba(20, 20, 28, 0.7);
             backdrop-filter: blur(16px) saturate(180%);
@@ -179,19 +178,17 @@
         </div>
     </div>
 
-    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Leaflet Routing Machine JS -->
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
     <script>
         const API_URL = 'https://mapchap-backend.onrender.com/api/places';
         let map, userCoords, userMarker = null, currentHeading = null;
         let allPlaces = [];
         let currentRoute = null;
+        let currentFilter = 'all'; // запоминаем активный фильтр
 
-        // Тёмная тема CartoDB
         const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>, &copy; CartoDB',
+            attribution: '', // пусто, чтобы скрыть
             subdomains: 'abcd',
             maxZoom: 19
         });
@@ -210,7 +207,6 @@
                 attributionControl: false
             });
             darkLayer.addTo(map);
-            L.control.zoom({ position: 'topright' }).addTo(map);
 
             startWatchingPosition();
             loadPlaces();
@@ -233,34 +229,55 @@
         }
 
         function setupCompass() {
+            const updateHeading = (alpha) => {
+                if (alpha != null) {
+                    currentHeading = alpha;
+                    // Обновляем только поворот, не пересоздавая маркер
+                    if (userMarker && userMarker._icon) {
+                        userMarker._icon.style.transform = `rotate(${currentHeading}deg)`;
+                    }
+                }
+            };
+
             if ('ondeviceorientationabsolute' in window) {
                 window.addEventListener('deviceorientationabsolute', (e) => {
-                    if (e.alpha !== null) { currentHeading = e.alpha; updateUserMarker(); }
+                    updateHeading(e.alpha);
                 }, true);
             } else if (window.DeviceOrientationEvent) {
                 window.addEventListener('deviceorientation', (e) => {
-                    if (e.webkitCompassHeading) { currentHeading = e.webkitCompassHeading; updateUserMarker(); }
-                    else if (e.absolute && e.alpha !== null) { currentHeading = e.alpha; updateUserMarker(); }
+                    if (e.webkitCompassHeading) updateHeading(e.webkitCompassHeading);
+                    else if (e.absolute && e.alpha !== null) updateHeading(e.alpha);
                 }, true);
             }
         }
 
         function updateUserMarker() {
             if (!userCoords) return;
-            if (userMarker) map.removeLayer(userMarker);
 
+            if (userMarker) {
+                // Просто передвигаем и применяем поворот (поворот уже обновляется из компаса)
+                userMarker.setLatLng(userCoords);
+                if (currentHeading != null) {
+                    userMarker._icon.style.transition = 'transform 0.3s';
+                }
+                return;
+            }
+
+            // Первое создание маркера
             let iconUrl;
             if (currentHeading != null) {
-                const encoded = encodeURIComponent(`<svg width="44" height="44" viewBox="-22 -22 44 44" xmlns="http://www.w3.org/2000/svg"><circle cx="0" cy="0" r="20" fill="none" stroke="rgba(0,123,255,0.5)" stroke-width="3"/><polygon points="0,-18 10,14 -10,14" fill="white" stroke="#007bff" stroke-width="2"/><circle cx="0" cy="0" r="6" fill="#007bff"/></svg>`);
-                iconUrl = `data:image/svg+xml;utf8,${encoded}`;
+                const svg = `<svg width="44" height="44" viewBox="-22 -22 44 44" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="0" cy="0" r="20" fill="none" stroke="rgba(0,123,255,0.5)" stroke-width="3"/>
+                    <polygon points="0,-18 10,14 -10,14" fill="white" stroke="#007bff" stroke-width="2"/>
+                    <circle cx="0" cy="0" r="6" fill="#007bff"/>
+                </svg>`;
+                iconUrl = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
                 const icon = L.icon({
                     iconUrl: iconUrl,
                     iconSize: [44, 44],
                     iconAnchor: [22, 22]
                 });
                 userMarker = L.marker(userCoords, { icon: icon, zIndexOffset: 1000 }).addTo(map);
-                userMarker._icon.style.transform = `rotate(${currentHeading}deg)`;
-                userMarker._icon.style.transition = 'transform 0.3s';
             } else {
                 const icon = L.divIcon({
                     className: 'pulse-icon',
@@ -276,12 +293,22 @@
             try {
                 const res = await fetch(API_URL);
                 allPlaces = await res.json();
-                renderMarkers('all');
+                applyFilter(currentFilter);
             } catch (e) { console.error(e); }
+        }
+
+        function applyFilter(filterCat) {
+            currentFilter = filterCat;
+            // Обновляем активную кнопку
+            document.querySelectorAll('.cat-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.cat === filterCat);
+            });
+            renderMarkers(filterCat);
         }
 
         function renderMarkers(filterCat) {
             if (currentRoute) { map.removeControl(currentRoute); currentRoute = null; }
+            // Удаляем все маркеры, кроме пользовательского
             map.eachLayer(layer => {
                 if (layer instanceof L.Marker && layer !== userMarker) {
                     map.removeLayer(layer);
@@ -306,7 +333,7 @@
                     const expiryDate = new Date(place.expiry.replace(' ', 'T'));
                     popupContent += `<i>Действует до: ${expiryDate.toLocaleString('ru-RU')}</i><br>`;
                 }
-                popupContent += `<button onclick="buildRouteTo([${place.lat},${place.lng}])" style="padding:4px 10px; background:#007bff; color:white; border:none; border-radius:15px;">🚶 Маршрут</button>`;
+                popupContent += `<button onclick="buildRouteTo([${place.lat},${place.lng}])" style="background: rgba(0,123,255,0.9); border: none; color: white; padding: 6px 14px; border-radius: 20px; backdrop-filter: blur(8px); font-weight: 600; margin-top: 4px;">🚶 Маршрут</button>`;
 
                 marker.bindPopup(popupContent);
             });
@@ -315,17 +342,11 @@
         function buildRouteTo(targetCoords) {
             if (!userCoords) { alert('Сначала определите местоположение.'); return; }
             if (currentRoute) map.removeControl(currentRoute);
-
             currentRoute = L.Routing.control({
-                waypoints: [
-                    L.latLng(userCoords[0], userCoords[1]),
-                    L.latLng(targetCoords[0], targetCoords[1])
-                ],
+                waypoints: [L.latLng(userCoords[0], userCoords[1]), L.latLng(targetCoords[0], targetCoords[1])],
                 routeWhileDragging: false,
                 showAlternatives: false,
-                lineOptions: {
-                    styles: [{ color: '#007bff', opacity: 0.8, weight: 6 }]
-                },
+                lineOptions: { styles: [{ color: '#007bff', opacity: 0.8, weight: 6 }] },
                 createMarker: function() { return null; }
             }).addTo(map);
         }
@@ -336,15 +357,13 @@
         }
 
         function toggleCategories() {
-            const panel = document.getElementById('categoryPanel');
-            panel.classList.toggle('open');
+            document.getElementById('categoryPanel').classList.toggle('open');
         }
 
         document.getElementById('categoryPanel').addEventListener('click', e => {
             if (e.target.classList.contains('cat-btn')) {
-                document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
-                e.target.classList.add('active');
-                renderMarkers(e.target.dataset.cat);
+                const cat = e.target.dataset.cat;
+                applyFilter(cat);
                 document.getElementById('categoryPanel').classList.remove('open');
             }
         });
@@ -355,7 +374,7 @@
             if (e.target === this) closeInfo();
         });
 
-        // Пульсация для случая без компаса
+        // Пульсация
         const style = document.createElement('style');
         style.textContent = `
             .pulse-marker {
