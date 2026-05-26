@@ -190,7 +190,6 @@
         <button class="cat-btn" data-cat="cafe">Кафе</button>
     </div>
 
-    <!-- О приложении (обновлённый юзернейм) -->
     <div class="modal" id="infoModal">
         <div class="modal-content glass">
             <h3>О приложении</h3>
@@ -206,7 +205,7 @@
         let map, userCoords, allPlaces = [];
         let userMarker = null;
         let currentRoute = null;
-        let currentHeading = null;
+        let currentHeading = null;   // градусы (0 – север, 90 – восток и т.д.)
 
         const categoryColors = {
             beauty: 'violet', auto: 'blue', med: 'red', pharmacy: 'green',
@@ -214,15 +213,32 @@
             appliances: 'brown', flowers: 'pink', restaurant: 'coral', cafe: 'coffee'
         };
 
-        if (window.DeviceOrientationEvent) {
-            window.addEventListener('deviceorientation', (event) => {
-                if (event.webkitCompassHeading) {
-                    currentHeading = event.webkitCompassHeading;
-                } else if (event.alpha !== null) {
-                    currentHeading = event.alpha;
-                }
-                updateUserMarker();
-            }, true);
+        // ──── Компас ────
+        function setupCompass() {
+            // 1. Пробуем абсолютный компас (Android Chrome 80+)
+            if ('ondeviceorientationabsolute' in window) {
+                window.addEventListener('deviceorientationabsolute', (event) => {
+                    if (event.alpha !== null) {
+                        currentHeading = event.alpha; // 0..360, 0 = север
+                        updateUserMarker();
+                    }
+                }, true);
+                return;
+            }
+            // 2. iOS через webkitCompassHeading
+            if (window.DeviceOrientationEvent) {
+                window.addEventListener('deviceorientation', (event) => {
+                    if (event.webkitCompassHeading) {
+                        currentHeading = event.webkitCompassHeading;
+                        updateUserMarker();
+                    } else if (event.absolute && event.alpha !== null) {
+                        // Некоторые Android с absolute=true
+                        currentHeading = event.alpha;
+                        updateUserMarker();
+                    }
+                }, true);
+            }
+            // 3. Если ничего нет – заглушка, будем использовать GPS heading (см. ниже)
         }
 
         function startWatchingPosition() {
@@ -230,6 +246,7 @@
             navigator.geolocation.watchPosition(
                 pos => {
                     userCoords = [pos.coords.latitude, pos.coords.longitude];
+                    // Если компас не дал heading, используем направление движения из GPS
                     if (currentHeading == null && pos.coords.heading != null) {
                         currentHeading = pos.coords.heading;
                     }
@@ -240,37 +257,31 @@
             );
         }
 
+        // ──── Маркер пользователя ────
         function updateUserMarker() {
             if (!userCoords) return;
 
-            if (userMarker) {
-                userMarker.geometry.setCoordinates(userCoords);
-                const prevHasHeading = userMarker.properties.get('hasHeading');
-                const nowHasHeading = currentHeading != null;
-                if (prevHasHeading === nowHasHeading && nowHasHeading) {
-                    const layout = userMarker.options.get('iconContentLayout');
-                    if (layout && layout._element) {
-                        layout._element.style.transform = `rotate(${currentHeading}deg)`;
-                    }
-                    return;
+            // Убираем все старые маркеры пользователя (со специальной меткой)
+            map.geoObjects.each(obj => {
+                if (obj.properties.get('isUserMarker')) {
+                    map.geoObjects.remove(obj);
                 }
-                if (prevHasHeading === nowHasHeading && !nowHasHeading) {
-                    return;
-                }
-                map.geoObjects.remove(userMarker);
-                userMarker = null;
-            }
+            });
+            userMarker = null;
 
+            // Создаём новый маркер
             let iconLayout;
             if (currentHeading != null) {
+                const rotation = currentHeading;
                 iconLayout = ymaps.templateLayoutFactory.createClass(
-                    `<svg width="44" height="44" viewBox="-22 -22 44 44" style="transform: rotate(${currentHeading}deg); transition: transform 0.3s;">
+                    `<svg width="44" height="44" viewBox="-22 -22 44 44" style="transform: rotate(${rotation}deg); transition: transform 0.3s;">
                         <circle cx="0" cy="0" r="20" fill="none" stroke="rgba(0,123,255,0.5)" stroke-width="3"/>
                         <polygon points="0,-18 10,14 -10,14" fill="white" stroke="rgb(0,123,255)" stroke-width="2"/>
                         <circle cx="0" cy="0" r="6" fill="#007bff"/>
                     </svg>`
                 );
             } else {
+                // Пульсирующая точка, если направление неизвестно
                 iconLayout = ymaps.templateLayoutFactory.createClass(
                     '<div class="pulse-marker"></div>'
                 );
@@ -283,10 +294,11 @@
                 iconImageOffset: [-22, -22],
                 zIndex: 100
             });
-            userMarker.properties.set('hasHeading', currentHeading != null);
+            userMarker.properties.set('isUserMarker', true);
             map.geoObjects.add(userMarker);
         }
 
+        // ──── Инициализация карты ────
         function initMap() {
             map = new ymaps.Map('map', {
                 center: [55.76, 37.64], zoom: 13,
@@ -297,6 +309,8 @@
             };
             setTimeout(clean, 300);
             map.events.add('boundschange', clean);
+
+            setupCompass();
             startWatchingPosition();
             loadPlaces();
         }
@@ -311,6 +325,7 @@
 
         function renderMarkers(filterCat) {
             if (currentRoute) { map.geoObjects.remove(currentRoute); currentRoute = null; }
+            // Удаляем все объекты, кроме маркера пользователя (он пересоздастся)
             map.geoObjects.removeAll();
             userMarker = null;
             updateUserMarker();
