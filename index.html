@@ -11,7 +11,6 @@
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
         #map { width: 100%; height: 100%; }
 
-        /* Скрываем лишнее от Яндекса */
         .ymaps-2-1-79-copyright,
         .ymaps-2-1-79-map-copyrights-promo,
         .ymaps-2-1-79-controls__control,
@@ -28,7 +27,6 @@
             filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95);
         }
 
-        /* Эффект стекла */
         .glass {
             background: rgba(20, 20, 28, 0.7);
             backdrop-filter: blur(16px) saturate(180%);
@@ -38,7 +36,6 @@
             color: #fff;
         }
 
-        /* Логотип */
         .logo {
             position: absolute;
             top: 12px; left: 12px; z-index: 1000;
@@ -52,10 +49,9 @@
         .logo:active { transform: scale(0.96); }
         .logo::before { content: "📍 "; margin-right: 6px; }
 
-        /* Кнопка "О приложении" */
         .info-btn {
             position: absolute;
-            top: 12px; left: 160px; z-index: 1000; /* подстраивай под ширину логотипа */
+            top: 12px; left: 160px; z-index: 1000;
             width: 38px; height: 38px;
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
@@ -69,10 +65,9 @@
         }
         .info-btn:active { transform: scale(0.92); background: rgba(0,123,255,0.3); }
 
-        /* Кнопка геолокации */
         .locate-btn {
             position: absolute;
-            bottom: 130px; right: 16px; z-index: 1000;
+            bottom: 24px; right: 16px; z-index: 1000;
             width: 48px; height: 48px;
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
@@ -81,17 +76,32 @@
         }
         .locate-btn:active { transform: scale(0.9); background: rgba(0,123,255,0.25); }
 
-        /* Панель категорий */
-        .category-bar {
+        .cat-trigger {
             position: absolute;
-            bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1000;
-            display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+            bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1001;
+            padding: 10px 24px;
+            border-radius: 30px;
+            font-weight: 600; font-size: 15px;
+            cursor: pointer;
+            transition: all 0.25s;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            background: linear-gradient(135deg, #007bff, #00b4ff);
+        }
+        .cat-trigger:active { transform: translateX(-50%) scale(0.95); }
+
+        .category-panel {
+            position: absolute;
+            bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 1000;
+            display: none;
+            flex-wrap: wrap; gap: 8px; justify-content: center;
             padding: 10px 18px;
             border-radius: 40px;
             max-width: 95vw;
         }
+        .category-panel.open { display: flex; }
 
-        /* Кнопки категорий — "сильные" */
         .cat-btn {
             border: none;
             background: rgba(255,255,255,0.08);
@@ -101,14 +111,11 @@
             font-size: 14px; font-weight: 500;
             cursor: pointer;
             white-space: nowrap;
-            transition: all 0.25s cubic-bezier(0.25,0.8,0.25,1.2);
+            transition: all 0.25s;
             letter-spacing: 0.3px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.2);
         }
-        .cat-btn:active {
-            transform: scale(0.94);
-            background: rgba(255,255,255,0.2);
-        }
+        .cat-btn:active { transform: scale(0.94); background: rgba(255,255,255,0.2); }
         .cat-btn.active {
             background: linear-gradient(135deg, #007bff, #00b4ff);
             color: white;
@@ -117,28 +124,6 @@
             font-weight: 600;
         }
 
-        /* Анимированный индикатор (пульсация) */
-        .pulse-marker {
-            width: 20px; height: 20px;
-            background: #007bff;
-            border-radius: 50%;
-            position: relative;
-        }
-        .pulse-marker::before {
-            content: '';
-            position: absolute;
-            top: -6px; left: -6px; right: -6px; bottom: -6px;
-            background: rgba(0,123,255,0.4);
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0% { transform: scale(0.8); opacity: 1; }
-            50% { transform: scale(1.9); opacity: 0; }
-            100% { transform: scale(0.8); opacity: 1; }
-        }
-
-        /* Модальное окно "О приложении" */
         .modal {
             display: none;
             position: absolute;
@@ -162,6 +147,7 @@
         }
         .modal-content h3 { margin-top: 0; color: #fff; }
         .modal-content p { font-size: 14px; line-height: 1.5; }
+        .modal-content a { color: #4da3ff; text-decoration: none; }
         .close-modal {
             margin-top: 16px;
             background: linear-gradient(135deg, #007bff, #00b4ff);
@@ -187,7 +173,9 @@
         </svg>
     </div>
 
-    <div class="category-bar glass" id="categoryBar">
+    <div class="cat-trigger" id="catTrigger" onclick="toggleCategories()">📋 Категории</div>
+
+    <div class="category-panel glass" id="categoryPanel">
         <button class="cat-btn active" data-cat="all">Все</button>
         <button class="cat-btn" data-cat="beauty">Салон красоты</button>
         <button class="cat-btn" data-cat="auto">Автоуслуги</button>
@@ -202,11 +190,12 @@
         <button class="cat-btn" data-cat="cafe">Кафе</button>
     </div>
 
-    <!-- Модальное окно -->
+    <!-- О приложении (обновлённый юзернейм) -->
     <div class="modal" id="infoModal">
         <div class="modal-content glass">
             <h3>О приложении</h3>
-            <p>MapChap помогает находить выгодные предложения от местных бизнесов. Мы не размещаем объявления, содержащие темы войны, оружия, политики, запрещённых веществ, финансовых пирамид и другую сомнительную деятельность. Берегите себя и окружающих.</p>
+            <p>MapChap помогает находить выгодные предложения рядом. Предприниматели добавляют акции через нашего Telegram-бота. Мы строго следим за контентом: запрещены темы войны, оружия, политики, наркотиков и финансовых пирамид.</p>
+            <p>Добавить своё предложение: <a href="https://t.me/mapchaps_bot" target="_blank">@mapchaps_bot</a></p>
             <button class="close-modal" onclick="closeInfo()">Понятно</button>
         </div>
     </div>
@@ -217,7 +206,7 @@
         let map, userCoords, allPlaces = [];
         let userMarker = null;
         let currentRoute = null;
-        let currentHeading = null; // градусы для компаса
+        let currentHeading = null;
 
         const categoryColors = {
             beauty: 'violet', auto: 'blue', med: 'red', pharmacy: 'green',
@@ -225,25 +214,22 @@
             appliances: 'brown', flowers: 'pink', restaurant: 'coral', cafe: 'coffee'
         };
 
-        // Компас (deviceorientation)
         if (window.DeviceOrientationEvent) {
             window.addEventListener('deviceorientation', (event) => {
                 if (event.webkitCompassHeading) {
-                    currentHeading = event.webkitCompassHeading; // iOS
+                    currentHeading = event.webkitCompassHeading;
                 } else if (event.alpha !== null) {
-                    currentHeading = event.alpha; // Android (от 0 до 360)
+                    currentHeading = event.alpha;
                 }
                 updateUserMarker();
             }, true);
         }
 
-        // Геолокация
         function startWatchingPosition() {
             if (!navigator.geolocation) return;
             navigator.geolocation.watchPosition(
                 pos => {
                     userCoords = [pos.coords.latitude, pos.coords.longitude];
-                    // heading из GPS используется только если нет компаса
                     if (currentHeading == null && pos.coords.heading != null) {
                         currentHeading = pos.coords.heading;
                     }
@@ -256,13 +242,29 @@
 
         function updateUserMarker() {
             if (!userCoords) return;
-            if (userMarker) map.geoObjects.remove(userMarker);
+
+            if (userMarker) {
+                userMarker.geometry.setCoordinates(userCoords);
+                const prevHasHeading = userMarker.properties.get('hasHeading');
+                const nowHasHeading = currentHeading != null;
+                if (prevHasHeading === nowHasHeading && nowHasHeading) {
+                    const layout = userMarker.options.get('iconContentLayout');
+                    if (layout && layout._element) {
+                        layout._element.style.transform = `rotate(${currentHeading}deg)`;
+                    }
+                    return;
+                }
+                if (prevHasHeading === nowHasHeading && !nowHasHeading) {
+                    return;
+                }
+                map.geoObjects.remove(userMarker);
+                userMarker = null;
+            }
 
             let iconLayout;
             if (currentHeading != null) {
-                const rotation = currentHeading;
                 iconLayout = ymaps.templateLayoutFactory.createClass(
-                    `<svg width="44" height="44" viewBox="-22 -22 44 44" style="transform: rotate(${rotation}deg); transition: transform 0.3s;">
+                    `<svg width="44" height="44" viewBox="-22 -22 44 44" style="transform: rotate(${currentHeading}deg); transition: transform 0.3s;">
                         <circle cx="0" cy="0" r="20" fill="none" stroke="rgba(0,123,255,0.5)" stroke-width="3"/>
                         <polygon points="0,-18 10,14 -10,14" fill="white" stroke="rgb(0,123,255)" stroke-width="2"/>
                         <circle cx="0" cy="0" r="6" fill="#007bff"/>
@@ -281,10 +283,10 @@
                 iconImageOffset: [-22, -22],
                 zIndex: 100
             });
+            userMarker.properties.set('hasHeading', currentHeading != null);
             map.geoObjects.add(userMarker);
         }
 
-        // Инициализация карты
         function initMap() {
             map = new ymaps.Map('map', {
                 center: [55.76, 37.64], zoom: 13,
@@ -310,6 +312,7 @@
         function renderMarkers(filterCat) {
             if (currentRoute) { map.geoObjects.remove(currentRoute); currentRoute = null; }
             map.geoObjects.removeAll();
+            userMarker = null;
             updateUserMarker();
 
             const filtered = filterCat === 'all' ? allPlaces : allPlaces.filter(p => p.category === filterCat);
@@ -341,18 +344,22 @@
             else { alert('Геолокация недоступна.'); }
         }
 
-        document.getElementById('categoryBar').addEventListener('click', e => {
+        function toggleCategories() {
+            const panel = document.getElementById('categoryPanel');
+            panel.classList.toggle('open');
+        }
+
+        document.getElementById('categoryPanel').addEventListener('click', e => {
             if (e.target.classList.contains('cat-btn')) {
                 document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
                 e.target.classList.add('active');
                 renderMarkers(e.target.dataset.cat);
+                document.getElementById('categoryPanel').classList.remove('open');
             }
         });
 
-        // Модальное окно
         function openInfo() { document.getElementById('infoModal').classList.add('open'); }
         function closeInfo() { document.getElementById('infoModal').classList.remove('open'); }
-        // Закрытие по клику на фон
         document.getElementById('infoModal').addEventListener('click', function(e) {
             if (e.target === this) closeInfo();
         });
