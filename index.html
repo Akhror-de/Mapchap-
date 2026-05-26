@@ -6,26 +6,14 @@
     <title>MapChap – выгодные условия рядом</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1e1e1e">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
     <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-        #map { width: 100%; height: 100%; }
-
-        .ymaps-2-1-79-copyright,
-        .ymaps-2-1-79-map-copyrights-promo,
-        .ymaps-2-1-79-controls__control,
-        .ymaps-2-1-79-controls__bottom,
-        .ymaps-2-1-79-controls__toolbar,
-        ymaps[class*="copyright"],
-        ymaps[class*="control"],
-        .ymaps-2-1-79-route-panel,
-        .ymaps-2-1-79-multiroute__panel {
-            display: none !important;
-        }
-
-        .dark-map {
-            filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95);
-        }
+        #map { width: 100%; height: 100%; background: #111; }
 
         .glass {
             background: rgba(20, 20, 28, 0.7);
@@ -44,9 +32,7 @@
             font-weight: 600; font-size: 18px;
             display: flex; align-items: center;
             letter-spacing: 0.5px;
-            transition: transform 0.2s;
         }
-        .logo:active { transform: scale(0.96); }
         .logo::before { content: "📍 "; margin-right: 6px; }
 
         .info-btn {
@@ -57,13 +43,11 @@
             display: flex; align-items: center; justify-content: center;
             font-size: 20px; font-weight: bold;
             cursor: pointer;
-            transition: all 0.2s;
             background: rgba(20,20,28,0.7);
             backdrop-filter: blur(16px);
             border: 1px solid rgba(255,255,255,0.15);
             color: #ccc;
         }
-        .info-btn:active { transform: scale(0.92); background: rgba(0,123,255,0.3); }
 
         .locate-btn {
             position: absolute;
@@ -72,9 +56,7 @@
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
             cursor: pointer;
-            transition: all 0.25s;
         }
-        .locate-btn:active { transform: scale(0.9); background: rgba(0,123,255,0.25); }
 
         .cat-trigger {
             position: absolute;
@@ -83,13 +65,11 @@
             border-radius: 30px;
             font-weight: 600; font-size: 15px;
             cursor: pointer;
-            transition: all 0.25s;
+            background: linear-gradient(135deg, #007bff, #00b4ff);
             box-shadow: 0 6px 20px rgba(0,0,0,0.5);
             border: 1px solid rgba(255,255,255,0.2);
             color: #fff;
-            background: linear-gradient(135deg, #007bff, #00b4ff);
         }
-        .cat-trigger:active { transform: translateX(-50%) scale(0.95); }
 
         .category-panel {
             position: absolute;
@@ -160,7 +140,7 @@
 <body>
     <div class="logo glass">MapChap</div>
     <div class="info-btn glass" onclick="openInfo()" title="О приложении">ℹ️</div>
-    <div id="map" class="dark-map"></div>
+    <div id="map"></div>
 
     <div class="locate-btn glass" onclick="centerToUser()" title="Моё местоположение">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -193,60 +173,59 @@
     <div class="modal" id="infoModal">
         <div class="modal-content glass">
             <h3>О приложении</h3>
-            <p>MapChap помогает находить выгодные предложения рядом. Предприниматели добавляют акции через нашего Telegram-бота. Мы строго следим за контентом: запрещены темы войны, оружия, политики, наркотиков и финансовых пирамид.</p>
+            <p>MapChap помогает находить выгодные предложения рядом. Предприниматели добавляют акции через Telegram-бота. Запрещены темы войны, оружия, политики, наркотиков и финансовых пирамид.</p>
             <p>Добавить своё предложение: <a href="https://t.me/mapchaps_bot" target="_blank">@mapchaps_bot</a></p>
             <button class="close-modal" onclick="closeInfo()">Понятно</button>
         </div>
     </div>
 
-    <script src="https://api-maps.yandex.ru/2.1/?apikey=07b74146-5f5a-46bf-a2b1-cf6d052a41bb&lang=ru_RU"></script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet Routing Machine JS -->
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
     <script>
         const API_URL = 'https://mapchap-backend.onrender.com/api/places';
-        let map, userCoords, allPlaces = [];
-        let userMarker = null;
+        let map, userCoords, userMarker = null, currentHeading = null;
+        let allPlaces = [];
         let currentRoute = null;
-        let currentHeading = null;   // градусы (0 – север, 90 – восток и т.д.)
 
+        // Тёмная тема CartoDB
+        const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>, &copy; CartoDB',
+            subdomains: 'abcd',
+            maxZoom: 19
+        });
+
+        // Цвета категорий для иконок (используем Leaflet.extra-markers или простые circle)
         const categoryColors = {
-            beauty: 'violet', auto: 'blue', med: 'red', pharmacy: 'green',
-            clothes: 'orange', grocery: 'yellow', electronics: 'cyan',
-            appliances: 'brown', flowers: 'pink', restaurant: 'coral', cafe: 'coffee'
+            beauty: '#8B00FF', auto: '#0000FF', med: '#FF0000', pharmacy: '#008000',
+            clothes: '#FFA500', grocery: '#FFFF00', electronics: '#00FFFF',
+            appliances: '#8B4513', flowers: '#FF69B4', restaurant: '#FF7F50', cafe: '#8B4513'
         };
 
-        // ──── Компас ────
-        function setupCompass() {
-            // 1. Пробуем абсолютный компас (Android Chrome 80+)
-            if ('ondeviceorientationabsolute' in window) {
-                window.addEventListener('deviceorientationabsolute', (event) => {
-                    if (event.alpha !== null) {
-                        currentHeading = event.alpha; // 0..360, 0 = север
-                        updateUserMarker();
-                    }
-                }, true);
-                return;
-            }
-            // 2. iOS через webkitCompassHeading
-            if (window.DeviceOrientationEvent) {
-                window.addEventListener('deviceorientation', (event) => {
-                    if (event.webkitCompassHeading) {
-                        currentHeading = event.webkitCompassHeading;
-                        updateUserMarker();
-                    } else if (event.absolute && event.alpha !== null) {
-                        // Некоторые Android с absolute=true
-                        currentHeading = event.alpha;
-                        updateUserMarker();
-                    }
-                }, true);
-            }
-            // 3. Если ничего нет – заглушка, будем использовать GPS heading (см. ниже)
+        // Инициализация карты
+        function initMap() {
+            map = L.map('map', {
+                center: [55.76, 37.64],
+                zoom: 13,
+                zoomControl: false,
+                attributionControl: false
+            });
+            darkLayer.addTo(map);
+            // Добавим zoom control справа, незаметно
+            L.control.zoom({ position: 'topright' }).addTo(map);
+
+            startWatchingPosition();
+            loadPlaces();
+            setupCompass();
         }
 
+        // Геолокация
         function startWatchingPosition() {
             if (!navigator.geolocation) return;
             navigator.geolocation.watchPosition(
                 pos => {
                     userCoords = [pos.coords.latitude, pos.coords.longitude];
-                    // Если компас не дал heading, используем направление движения из GPS
                     if (currentHeading == null && pos.coords.heading != null) {
                         currentHeading = pos.coords.heading;
                     }
@@ -257,64 +236,52 @@
             );
         }
 
-        // ──── Маркер пользователя ────
+        // Компас (deviceorientation)
+        function setupCompass() {
+            if ('ondeviceorientationabsolute' in window) {
+                window.addEventListener('deviceorientationabsolute', (e) => {
+                    if (e.alpha !== null) { currentHeading = e.alpha; updateUserMarker(); }
+                }, true);
+            } else if (window.DeviceOrientationEvent) {
+                window.addEventListener('deviceorientation', (e) => {
+                    if (e.webkitCompassHeading) { currentHeading = e.webkitCompassHeading; updateUserMarker(); }
+                    else if (e.absolute && e.alpha !== null) { currentHeading = e.alpha; updateUserMarker(); }
+                }, true);
+            }
+        }
+
+        // Обновление маркера пользователя с компасом
         function updateUserMarker() {
             if (!userCoords) return;
+            if (userMarker) map.removeLayer(userMarker);
 
-            // Убираем все старые маркеры пользователя (со специальной меткой)
-            map.geoObjects.each(obj => {
-                if (obj.properties.get('isUserMarker')) {
-                    map.geoObjects.remove(obj);
-                }
-            });
-            userMarker = null;
-
-            // Создаём новый маркер
-            let iconLayout;
+            let iconUrl;
             if (currentHeading != null) {
-                const rotation = currentHeading;
-                iconLayout = ymaps.templateLayoutFactory.createClass(
-                    `<svg width="44" height="44" viewBox="-22 -22 44 44" style="transform: rotate(${rotation}deg); transition: transform 0.3s;">
-                        <circle cx="0" cy="0" r="20" fill="none" stroke="rgba(0,123,255,0.5)" stroke-width="3"/>
-                        <polygon points="0,-18 10,14 -10,14" fill="white" stroke="rgb(0,123,255)" stroke-width="2"/>
-                        <circle cx="0" cy="0" r="6" fill="#007bff"/>
-                    </svg>`
-                );
+                // Генерируем SVG стрелку с поворотом
+                const encoded = encodeURIComponent(`<svg width="44" height="44" viewBox="-22 -22 44 44" xmlns="http://www.w3.org/2000/svg"><circle cx="0" cy="0" r="20" fill="none" stroke="rgba(0,123,255,0.5)" stroke-width="3"/><polygon points="0,-18 10,14 -10,14" fill="white" stroke="#007bff" stroke-width="2"/><circle cx="0" cy="0" r="6" fill="#007bff"/></svg>`);
+                iconUrl = `data:image/svg+xml;utf8,${encoded}`;
+                const icon = L.icon({
+                    iconUrl: iconUrl,
+                    iconSize: [44, 44],
+                    iconAnchor: [22, 22],
+                    rotation: currentHeading  // Leaflet не поддерживает rotation из коробки, используем CSS-трансформацию
+                });
+                userMarker = L.marker(userCoords, { icon: icon, zIndexOffset: 1000 }).addTo(map);
+                // Применяем поворот через стиль
+                userMarker._icon.style.transform = `rotate(${currentHeading}deg)`;
             } else {
-                // Пульсирующая точка, если направление неизвестно
-                iconLayout = ymaps.templateLayoutFactory.createClass(
-                    '<div class="pulse-marker"></div>'
-                );
+                // Пульсирующая точка через div
+                const icon = L.divIcon({
+                    className: 'pulse-icon',
+                    html: '<div class="pulse-marker"></div>',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+                userMarker = L.marker(userCoords, { icon: icon, zIndexOffset: 1000 }).addTo(map);
             }
-
-            userMarker = new ymaps.Placemark(userCoords, {}, {
-                iconLayout: 'default#imageWithContent',
-                iconContentLayout: iconLayout,
-                iconImageSize: [44, 44],
-                iconImageOffset: [-22, -22],
-                zIndex: 100
-            });
-            userMarker.properties.set('isUserMarker', true);
-            map.geoObjects.add(userMarker);
         }
 
-        // ──── Инициализация карты ────
-        function initMap() {
-            map = new ymaps.Map('map', {
-                center: [55.76, 37.64], zoom: 13,
-                controls: [], suppressMapOpenBlock: true
-            });
-            const clean = () => {
-                document.querySelectorAll('.ymaps-2-1-79-copyright, .ymaps-2-1-79-map-copyrights-promo, .ymaps-2-1-79-route-panel, .ymaps-2-1-79-multiroute__panel').forEach(el => { el.style.display='none'; el.remove(); });
-            };
-            setTimeout(clean, 300);
-            map.events.add('boundschange', clean);
-
-            setupCompass();
-            startWatchingPosition();
-            loadPlaces();
-        }
-
+        // Загрузка предложений
         async function loadPlaces() {
             try {
                 const res = await fetch(API_URL);
@@ -323,39 +290,60 @@
             } catch (e) { console.error(e); }
         }
 
+        // Рендер маркеров по категории
         function renderMarkers(filterCat) {
-            if (currentRoute) { map.geoObjects.remove(currentRoute); currentRoute = null; }
-            // Удаляем все объекты, кроме маркера пользователя (он пересоздастся)
-            map.geoObjects.removeAll();
-            userMarker = null;
-            updateUserMarker();
+            // Удаляем старый маршрут
+            if (currentRoute) { map.removeControl(currentRoute); currentRoute = null; }
+            // Удаляем старые маркеры (кроме пользователя)
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker && layer !== userMarker) {
+                    map.removeLayer(layer);
+                }
+            });
 
             const filtered = filterCat === 'all' ? allPlaces : allPlaces.filter(p => p.category === filterCat);
             filtered.forEach(place => {
                 const coords = [place.lat, place.lng];
-                const colorPreset = categoryColors[place.category] ? `islands#${categoryColors[place.category]}Icon` : 'islands#blueIcon';
-                const marker = new ymaps.Placemark(coords, {
-                    balloonContentHeader: place.name,
-                    balloonContentBody: `<p>${place.description}</p><p><b>Скидка: ${place.discount}</b></p>
-                        <button onclick="buildRouteTo([${place.lat},${place.lng}])" style="padding:6px 14px; background:#007bff; color:white; border:none; border-radius:20px; cursor:pointer; font-weight:bold;">🚶 Маршрут</button>`,
-                    hintContent: place.name
-                }, { preset: colorPreset });
-                map.geoObjects.add(marker);
+                const color = categoryColors[place.category] || '#007bff';
+                const marker = L.circleMarker(coords, {
+                    radius: 8,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(map);
+
+                marker.bindPopup(`
+                    <b>${place.name}</b><br>
+                    ${place.description}<br>
+                    <b>Скидка: ${place.discount}</b><br>
+                    <button onclick="buildRouteTo([${place.lat},${place.lng}])" style="padding:4px 10px; background:#007bff; color:white; border:none; border-radius:15px;">🚶 Маршрут</button>
+                `);
             });
         }
 
+        // Построение маршрута через OSRM
         function buildRouteTo(targetCoords) {
             if (!userCoords) { alert('Сначала определите местоположение.'); return; }
-            if (currentRoute) map.geoObjects.remove(currentRoute);
-            currentRoute = new ymaps.multiRouter.MultiRoute({
-                referencePoints: [userCoords, targetCoords],
-                params: { routingMode: 'pedestrian' }
-            }, { viaPointsVisible: false, waypointsVisible: false, boundsAutoApply: true });
-            map.geoObjects.add(currentRoute);
+            if (currentRoute) map.removeControl(currentRoute);
+
+            currentRoute = L.Routing.control({
+                waypoints: [
+                    L.latLng(userCoords[0], userCoords[1]),
+                    L.latLng(targetCoords[0], targetCoords[1])
+                ],
+                routeWhileDragging: false,
+                showAlternatives: false,
+                lineOptions: {
+                    styles: [{ color: '#007bff', opacity: 0.8, weight: 6 }]
+                },
+                createMarker: function() { return null; } // не создаём лишние маркеры
+            }).addTo(map);
         }
 
         function centerToUser() {
-            if (userCoords) { map.setCenter(userCoords, 15, { duration: 300 }); }
+            if (userCoords) { map.setView(userCoords, 15); }
             else { alert('Геолокация недоступна.'); }
         }
 
@@ -379,7 +367,33 @@
             if (e.target === this) closeInfo();
         });
 
-        ymaps.ready(initMap);
+        // Небольшой CSS для пульсации (добавим в head)
+        const style = document.createElement('style');
+        style.textContent = `
+            .pulse-marker {
+                width: 20px; height: 20px;
+                background: #007bff;
+                border-radius: 50%;
+                position: relative;
+            }
+            .pulse-marker::before {
+                content: '';
+                position: absolute;
+                top: -6px; left: -6px; right: -6px; bottom: -6px;
+                background: rgba(0,123,255,0.4);
+                border-radius: 50%;
+                animation: pulse 2s infinite;
+            }
+            @keyframes pulse {
+                0% { transform: scale(0.8); opacity: 1; }
+                50% { transform: scale(1.9); opacity: 0; }
+                100% { transform: scale(0.8); opacity: 1; }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Старт
+        document.addEventListener('DOMContentLoaded', initMap);
     </script>
 </body>
 </html>
