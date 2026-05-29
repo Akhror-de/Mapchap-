@@ -12,6 +12,7 @@
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
         #map { width: 100%; height: 100%; background: #111; }
+
         .glass {
             background: rgba(20, 20, 28, 0.7);
             backdrop-filter: blur(16px) saturate(180%);
@@ -20,6 +21,7 @@
             box-shadow: 0 8px 24px rgba(0,0,0,0.4);
             color: #fff;
         }
+
         .logo {
             position: absolute;
             top: 12px; left: 12px; z-index: 1000;
@@ -30,6 +32,7 @@
             letter-spacing: 0.5px;
         }
         .logo::before { content: "📍 "; margin-right: 6px; }
+
         .info-btn {
             position: absolute;
             top: 12px; left: 160px; z-index: 1000;
@@ -43,6 +46,7 @@
             border: 1px solid rgba(255,255,255,0.15);
             color: #ccc;
         }
+
         .locate-btn {
             position: absolute;
             bottom: 24px; right: 16px; z-index: 1000;
@@ -51,6 +55,7 @@
             display: flex; align-items: center; justify-content: center;
             cursor: pointer;
         }
+
         .cat-trigger {
             position: absolute;
             bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1001;
@@ -63,6 +68,7 @@
             border: 1px solid rgba(255,255,255,0.2);
             color: #fff;
         }
+
         .category-panel {
             position: absolute;
             bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 1000;
@@ -73,6 +79,7 @@
             max-width: 95vw;
         }
         .category-panel.open { display: flex; }
+
         .cat-btn {
             border: none;
             background: rgba(255,255,255,0.08);
@@ -94,6 +101,7 @@
             border: 1px solid rgba(255,255,255,0.25);
             font-weight: 600;
         }
+
         .modal {
             display: none;
             position: absolute;
@@ -125,8 +133,44 @@
             border-radius: 30px; font-weight: 600; cursor: pointer;
             width: 100%; font-size: 14px;
         }
-        .smooth-user-marker {
-            transition: left 0.5s ease-out, top 0.5s ease-out !important;
+
+        /* Контейнер индикатора */
+        .user-marker-container {
+            width: 44px;
+            height: 44px;
+            position: relative;
+            pointer-events: none;
+        }
+        /* Пульсирующая точка */
+        .pulse-circle {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            margin-left: -10px; margin-top: -10px;
+            background: #007bff;
+            border-radius: 50%;
+            display: none; /* показываем только если нет компаса */
+        }
+        .pulse-circle::before {
+            content: '';
+            position: absolute;
+            top: -6px; left: -6px; right: -6px; bottom: -6px;
+            background: rgba(0,123,255,0.4);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.8); opacity: 1; }
+            50% { transform: scale(1.9); opacity: 0; }
+            100% { transform: scale(0.8); opacity: 1; }
+        }
+
+        /* Стрелка компаса */
+        .compass-arrow {
+            display: block;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.3s ease-out;
         }
     </style>
 </head>
@@ -134,6 +178,7 @@
     <div class="logo glass">MapChap</div>
     <div class="info-btn glass" onclick="openInfo()" title="О приложении">ℹ️</div>
     <div id="map"></div>
+
     <div class="locate-btn glass" onclick="centerToUser()" title="Моё местоположение">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
@@ -144,7 +189,9 @@
             <line x1="18" y1="12" x2="22" y2="12"></line>
         </svg>
     </div>
+
     <div class="cat-trigger" id="catTrigger" onclick="toggleCategories()">📋 Категории</div>
+
     <div class="category-panel glass" id="categoryPanel">
         <button class="cat-btn active" data-cat="all">Все</button>
         <button class="cat-btn" data-cat="beauty">Салон красоты</button>
@@ -159,6 +206,7 @@
         <button class="cat-btn" data-cat="restaurant">Ресторан</button>
         <button class="cat-btn" data-cat="cafe">Кафе</button>
     </div>
+
     <div class="modal" id="infoModal">
         <div class="modal-content glass">
             <h3>О приложении</h3>
@@ -171,16 +219,28 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
     <script>
+        // Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('SW registered', reg.scope))
+                    .catch(err => console.error('SW error', err));
+            });
+        }
+
         const API_URL = 'https://mapchap-backend.onrender.com/api/places';
         let map, userCoords, userMarker = null, currentHeading = null;
         let allPlaces = [];
         let currentRoute = null;
         let currentFilter = 'all';
-        const MIN_MOVE_DISTANCE = 2;
-        const MIN_ANGLE_CHANGE = 5;
+
+        // Настройки сглаживания
+        const MIN_MOVE_DISTANCE = 5;   // метров
+        const MIN_ANGLE_CHANGE = 10;   // градусов
         let lastCoords = null;
         let lastHeading = null;
 
+        // Тёмная тема CartoDB
         const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '',
             subdomains: 'abcd',
@@ -194,22 +254,29 @@
         };
 
         function initMap() {
-            map = L.map('map', { center: [55.76, 37.64], zoom: 13, zoomControl: false, attributionControl: false });
+            map = L.map('map', { 
+                center: [55.76, 37.64], 
+                zoom: 13, 
+                zoomControl: false, 
+                attributionControl: false 
+            });
             darkLayer.addTo(map);
             startWatchingPosition();
             loadPlaces();
             setupCompass();
         }
 
+        // Геолокация
         function startWatchingPosition() {
             if (!navigator.geolocation) return;
             navigator.geolocation.watchPosition(
                 pos => {
                     const newCoords = [pos.coords.latitude, pos.coords.longitude];
+                    // Фильтрация мелких перемещений
                     if (lastCoords && distanceInMeters(lastCoords, newCoords) < MIN_MOVE_DISTANCE) return;
                     lastCoords = newCoords;
                     userCoords = newCoords;
-                    updateUserMarker();
+                    updateUserMarkerPosition();
                 },
                 err => console.warn('Ошибка геолокации:', err.message),
                 { enableHighAccuracy: true, maximumAge: 0 }
@@ -220,60 +287,99 @@
             const R = 6371000;
             const dLat = (c2[0] - c1[0]) * Math.PI / 180;
             const dLon = (c2[1] - c1[1]) * Math.PI / 180;
-            const a = Math.sin(dLat/2) ** 2 + Math.cos(c1[0] * Math.PI / 180) * Math.cos(c2[0] * Math.PI / 180) * Math.sin(dLon/2) ** 2;
+            const a = Math.sin(dLat/2) ** 2 + 
+                      Math.cos(c1[0] * Math.PI / 180) * Math.cos(c2[0] * Math.PI / 180) * 
+                      Math.sin(dLon/2) ** 2;
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
+
+        // Компас с экспоненциальным сглаживанием
+        let smoothHeading = null;
+        const HEADING_SMOOTH = 0.3; // коэффициент фильтрации (0.3 = быстро реагирует, но плавно)
 
         function setupCompass() {
             const updateHeading = (alpha) => {
                 if (alpha == null) return;
-                if (lastHeading !== null && Math.abs(alpha - lastHeading) < MIN_ANGLE_CHANGE) return;
-                lastHeading = alpha;
-                currentHeading = alpha;
-                if (userMarker && userMarker._icon) {
-                    userMarker._icon.style.transition = 'transform 0.3s';
-                    userMarker._icon.style.transform = `rotate(${currentHeading}deg)`;
-                }
+                // Преобразуем alpha в направление "север" (0 – север, по часовой)
+                let heading = (360 - (alpha % 360)) % 360;
+                if (smoothHeading === null) smoothHeading = heading;
+                else smoothHeading = smoothHeading * (1 - HEADING_SMOOTH) + heading * HEADING_SMOOTH;
+                
+                if (lastHeading !== null && Math.abs(smoothHeading - lastHeading) < MIN_ANGLE_CHANGE) return;
+                lastHeading = smoothHeading;
+                currentHeading = smoothHeading;
+                updateUserMarkerHeading();
             };
+
             if ('ondeviceorientationabsolute' in window) {
-                window.addEventListener('deviceorientationabsolute', e => updateHeading(e.alpha), true);
+                window.addEventListener('deviceorientationabsolute', (e) => {
+                    if (e.alpha !== null) updateHeading(e.alpha);
+                }, true);
             } else if (window.DeviceOrientationEvent) {
-                window.addEventListener('deviceorientation', e => {
-                    if (e.webkitCompassHeading) updateHeading(e.webkitCompassHeading);
-                    else if (e.absolute && e.alpha !== null) updateHeading(e.alpha);
+                window.addEventListener('deviceorientation', (e) => {
+                    // iOS
+                    if (e.webkitCompassHeading !== undefined && e.webkitCompassHeading !== null) {
+                        updateHeading(e.webkitCompassHeading);
+                    } 
+                    // Android absolute
+                    else if (e.absolute && e.alpha !== null) {
+                        updateHeading(e.alpha);
+                    }
                 }, true);
             }
         }
 
-        function updateUserMarker() {
-            if (!userCoords) return;
-            const hasHeading = currentHeading != null;
-            const markerExists = !!userMarker;
-            const currentType = markerExists && userMarker._icon && userMarker._icon.classList.contains('pulse-icon') ? 'pulse' : 'compass';
-            const desiredType = hasHeading ? 'compass' : 'pulse';
-            if (!markerExists || currentType !== desiredType) {
-                if (userMarker) map.removeLayer(userMarker);
-                let icon;
-                if (hasHeading) {
-                    const svg = `<svg width="44" height="44" viewBox="-22 -22 44 44" xmlns="http://www.w3.org/2000/svg">
+        // Создание единого индикатора (если ещё нет)
+        function ensureUserMarker() {
+            if (userMarker) return;
+
+            const containerHtml = `
+                <div class="user-marker-container">
+                    <svg class="compass-arrow" viewBox="-22 -22 44 44" xmlns="http://www.w3.org/2000/svg">
                         <circle cx="0" cy="0" r="20" fill="none" stroke="rgba(0,123,255,0.5)" stroke-width="3"/>
                         <polygon points="0,-18 10,14 -10,14" fill="white" stroke="#007bff" stroke-width="2"/>
                         <circle cx="0" cy="0" r="6" fill="#007bff"/>
-                    </svg>`;
-                    icon = L.icon({ iconUrl: 'data:image/svg+xml;utf8,' + encodeURIComponent(svg), iconSize: [44, 44], iconAnchor: [22, 22] });
-                } else {
-                    icon = L.divIcon({ className: 'pulse-icon', html: '<div class="pulse-marker"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
-                }
-                userMarker = L.marker(userCoords, { icon: icon, zIndexOffset: 1000 }).addTo(map);
-                if (userMarker._icon) userMarker._icon.classList.add('smooth-user-marker');
+                    </svg>
+                    <div class="pulse-circle"></div>
+                </div>
+            `;
+            const icon = L.divIcon({
+                className: '', // убираем стандартный класс leaflet-div-icon
+                html: containerHtml,
+                iconSize: [44, 44],
+                iconAnchor: [22, 22]
+            });
+            userMarker = L.marker(userCoords || [55.76, 37.64], { icon, zIndexOffset: 1000 }).addTo(map);
+
+            // Начальное состояние
+            updateUserMarkerHeading();
+        }
+
+        function updateUserMarkerPosition() {
+            if (!userCoords) return;
+            ensureUserMarker();
+            userMarker.setLatLng(userCoords);
+        }
+
+        function updateUserMarkerHeading() {
+            ensureUserMarker();
+            const container = userMarker._icon;
+            if (!container) return;
+
+            const pulse = container.querySelector('.pulse-circle');
+            const arrow = container.querySelector('.compass-arrow');
+
+            if (currentHeading != null) {
+                pulse.style.display = 'none';
+                arrow.style.display = 'block';
+                arrow.style.transform = `rotate(${currentHeading}deg)`;
             } else {
-                userMarker.setLatLng(userCoords);
-            }
-            if (hasHeading && userMarker._icon) {
-                userMarker._icon.style.transform = `rotate(${currentHeading}deg)`;
+                pulse.style.display = 'block';
+                arrow.style.display = 'none';
             }
         }
 
+        // Остальные функции (карта, маршруты, категории)
         async function loadPlaces() {
             try {
                 const res = await fetch(API_URL);
@@ -284,26 +390,36 @@
 
         function applyFilter(filterCat) {
             currentFilter = filterCat;
-            document.querySelectorAll('.cat-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.cat === filterCat));
+            document.querySelectorAll('.cat-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.cat === filterCat);
+            });
             renderMarkers(filterCat);
         }
 
         function renderMarkers(filterCat) {
             if (currentRoute) { map.removeControl(currentRoute); currentRoute = null; }
+            // Удаляем все чужие маркеры
             map.eachLayer(layer => {
-                if (layer instanceof L.Marker && layer !== userMarker) map.removeLayer(layer);
+                if (layer instanceof L.Marker && layer !== userMarker) {
+                    map.removeLayer(layer);
+                }
             });
+
             const filtered = filterCat === 'all' ? allPlaces : allPlaces.filter(p => p.category === filterCat);
             filtered.forEach(place => {
                 const coords = [place.lat, place.lng];
                 const color = categoryColors[place.category] || '#007bff';
                 const marker = L.circleMarker(coords, {
-                    radius: 8, fillColor: color, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8
+                    radius: 8,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8
                 }).addTo(map);
+
                 let popup = `<b>${place.name}</b><br>${place.description}<br><b>Скидка: ${place.discount}</b><br>`;
-                if (place.contact) {
-                    popup += `<b>📞 Контакт:</b> ${place.contact}<br>`;
-                }
+                if (place.contact) popup += `<b>📞 Контакт:</b> ${place.contact}<br>`;
                 if (place.expiry) {
                     const exp = new Date(place.expiry.replace(' ', 'T'));
                     popup += `<i>Действует до: ${exp.toLocaleString('ru-RU')}</i><br>`;
@@ -318,7 +434,8 @@
             if (currentRoute) map.removeControl(currentRoute);
             currentRoute = L.Routing.control({
                 waypoints: [L.latLng(userCoords[0], userCoords[1]), L.latLng(targetCoords[0], targetCoords[1])],
-                routeWhileDragging: false, showAlternatives: false,
+                routeWhileDragging: false,
+                showAlternatives: false,
                 lineOptions: { styles: [{ color: '#007bff', opacity: 0.8, weight: 6 }] },
                 createMarker: function() { return null; }
             }).addTo(map);
@@ -345,26 +462,6 @@
         document.getElementById('infoModal').addEventListener('click', function(e) {
             if (e.target === this) closeInfo();
         });
-
-        const style = document.createElement('style');
-        style.textContent = `
-            .pulse-marker {
-                width: 20px; height: 20px;
-                background: #007bff; border-radius: 50%; position: relative;
-            }
-            .pulse-marker::before {
-                content: '';
-                position: absolute; top: -6px; left: -6px; right: -6px; bottom: -6px;
-                background: rgba(0,123,255,0.4); border-radius: 50%;
-                animation: pulse 2s infinite;
-            }
-            @keyframes pulse {
-                0% { transform: scale(0.8); opacity: 1; }
-                50% { transform: scale(1.9); opacity: 0; }
-                100% { transform: scale(0.8); opacity: 1; }
-            }
-        `;
-        document.head.appendChild(style);
 
         document.addEventListener('DOMContentLoaded', initMap);
     </script>
