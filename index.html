@@ -219,7 +219,7 @@
         let lastCoords = null;
         let lastHeading = null;
 
-        // Карта соответствия русских названий категорий кодам
+        // Словарь русских названий -> коды
         const russianToCode = {
             "салон красоты": "beauty",
             "автоуслуги": "auto",
@@ -234,13 +234,10 @@
             "кафе": "cafe"
         };
 
-        // Приводим категорию к единому коду
         function normalizeCategory(cat) {
             if (!cat) return null;
-            const lower = cat.toLowerCase();
-            // Если это уже код (латиница) – возвращаем как есть
+            const lower = cat.toLowerCase().trim();
             if (/^[a-z]+$/.test(lower)) return lower;
-            // Иначе ищем в словаре
             return russianToCode[lower] || null;
         }
 
@@ -263,10 +260,79 @@
             });
             darkLayer.addTo(map);
             startWatchingPosition();
-            loadPlaces();
+            // Загружаем данные при запуске
+            refreshPlaces();
             setupCompass();
+
+            // Автообновление каждые 30 секунд
+            setInterval(refreshPlaces, 30000);
         }
 
+        // ====== ОБНОВЛЕНИЕ ДАННЫХ С СЕРВЕРА ======
+        async function refreshPlaces() {
+            try {
+                const res = await fetch(API_URL);
+                if (!res.ok) throw new Error('Ошибка загрузки');
+                const data = await res.json();
+                // Нормализуем категории
+                allPlaces = data.map(p => ({
+                    ...p,
+                    category: normalizeCategory(p.category) || p.category
+                }));
+                // Применяем текущий фильтр и перерисовываем
+                applyFilter(currentFilter);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // ====== ПРИМЕНЕНИЕ ФИЛЬТРА ======
+        function applyFilter(filterCat) {
+            currentFilter = filterCat;
+            // Обновляем активную кнопку
+            document.querySelectorAll('.cat-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.cat === filterCat);
+            });
+            // Рисуем маркеры с новым фильтром
+            renderMarkers(filterCat);
+        }
+
+        // ====== ОТРИСОВКА МАРКЕРОВ ======
+        function renderMarkers(filterCat) {
+            // Удаляем старые маркеры (кроме пользователя)
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker && layer !== userMarker) {
+                    map.removeLayer(layer);
+                }
+            });
+            // Удаляем маршрут, если есть
+            if (currentRoute) { map.removeControl(currentRoute); currentRoute = null; }
+
+            // Фильтруем точки
+            const filtered = filterCat === 'all' 
+                ? allPlaces 
+                : allPlaces.filter(p => p.category === filterCat);
+
+            // Рисуем каждую точку
+            filtered.forEach(place => {
+                const coords = [place.lat, place.lng];
+                const color = categoryColors[place.category] || '#007bff';
+                const marker = L.circleMarker(coords, {
+                    radius: 8, fillColor: color, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8
+                }).addTo(map);
+
+                let popup = `<b>${place.name}</b><br>${place.description}<br><b>Скидка: ${place.discount}</b><br>`;
+                if (place.contact) popup += `<b>📞 Контакт:</b> ${place.contact}<br>`;
+                if (place.expiry) {
+                    const exp = new Date(place.expiry.replace(' ', 'T'));
+                    popup += `<i>Действует до: ${exp.toLocaleString('ru-RU')}</i><br>`;
+                }
+                popup += `<button onclick="buildRouteTo([${place.lat},${place.lng}])" style="background: rgba(0,123,255,0.9); border: none; color: white; padding: 6px 14px; border-radius: 20px; backdrop-filter: blur(8px); font-weight: 600; margin-top: 4px;">🚶 Маршрут</button>`;
+                marker.bindPopup(popup);
+            });
+        }
+
+        // Геолокация
         function startWatchingPosition() {
             if (!navigator.geolocation) return;
             navigator.geolocation.watchPosition(
@@ -364,56 +430,23 @@
             }
         }
 
-        async function loadPlaces() {
-            try {
-                const res = await fetch(API_URL);
-                allPlaces = await res.json();
-                // Нормализуем категории у всех записей
-                allPlaces.forEach(p => {
-                    p.category = normalizeCategory(p.category) || p.category;
+        // Категории
+        function toggleCategories() {
+            document.getElementById('categoryPanel').classList.toggle('open');
+        }
+
+        document.getElementById('categoryPanel').addEventListener('click', e => {
+            if (e.target.classList.contains('cat-btn')) {
+                const cat = e.target.dataset.cat;
+                // При выборе категории заново загружаем данные с сервера и фильтруем
+                refreshPlaces().then(() => {
+                    applyFilter(cat);
+                    document.getElementById('categoryPanel').classList.remove('open');
                 });
-                applyFilter(currentFilter);
-            } catch (e) { console.error(e); }
-        }
+            }
+        });
 
-        function applyFilter(filterCat) {
-            currentFilter = filterCat;
-            document.querySelectorAll('.cat-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.cat === filterCat);
-            });
-            renderMarkers(filterCat);
-        }
-
-        function renderMarkers(filterCat) {
-            if (currentRoute) { map.removeControl(currentRoute); currentRoute = null; }
-            map.eachLayer(layer => {
-                if (layer instanceof L.Marker && layer !== userMarker) {
-                    map.removeLayer(layer);
-                }
-            });
-
-            const filtered = filterCat === 'all' 
-                ? allPlaces 
-                : allPlaces.filter(p => p.category === filterCat);
-
-            filtered.forEach(place => {
-                const coords = [place.lat, place.lng];
-                const color = categoryColors[place.category] || '#007bff';
-                const marker = L.circleMarker(coords, {
-                    radius: 8, fillColor: color, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8
-                }).addTo(map);
-
-                let popup = `<b>${place.name}</b><br>${place.description}<br><b>Скидка: ${place.discount}</b><br>`;
-                if (place.contact) popup += `<b>📞 Контакт:</b> ${place.contact}<br>`;
-                if (place.expiry) {
-                    const exp = new Date(place.expiry.replace(' ', 'T'));
-                    popup += `<i>Действует до: ${exp.toLocaleString('ru-RU')}</i><br>`;
-                }
-                popup += `<button onclick="buildRouteTo([${place.lat},${place.lng}])" style="background: rgba(0,123,255,0.9); border: none; color: white; padding: 6px 14px; border-radius: 20px; backdrop-filter: blur(8px); font-weight: 600; margin-top: 4px;">🚶 Маршрут</button>`;
-                marker.bindPopup(popup);
-            });
-        }
-
+        // Маршруты
         function buildRouteTo(targetCoords) {
             if (!userCoords) { alert('Сначала определите местоположение.'); return; }
             if (currentRoute) map.removeControl(currentRoute);
@@ -429,17 +462,6 @@
             if (userCoords) map.setView(userCoords, 15);
             else alert('Геолокация недоступна.');
         }
-
-        function toggleCategories() {
-            document.getElementById('categoryPanel').classList.toggle('open');
-        }
-
-        document.getElementById('categoryPanel').addEventListener('click', e => {
-            if (e.target.classList.contains('cat-btn')) {
-                applyFilter(e.target.dataset.cat);
-                document.getElementById('categoryPanel').classList.remove('open');
-            }
-        });
 
         function openInfo() { document.getElementById('infoModal').classList.add('open'); }
         function closeInfo() { document.getElementById('infoModal').classList.remove('open'); }
