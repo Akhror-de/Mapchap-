@@ -200,6 +200,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
     <script>
+        // Регистрация Service Worker
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
@@ -208,18 +209,30 @@
             });
         }
 
+        // Публичный API (без секретов)
         const API_URL = 'https://mapchap-backend.onrender.com/api/places';
         let map, userCoords, userMarker = null, currentHeading = null;
         let allPlaces = [];
         let currentRoute = null;
         let currentFilter = 'all';
 
+        // Защита от XSS
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         const MIN_MOVE_DISTANCE = 5;
         const MIN_ANGLE_CHANGE = 10;
         let lastCoords = null;
         let lastHeading = null;
 
-        // Словарь русских названий -> коды
+        // Словарь для конвертации русских названий (если остались в базе)
         const russianToCode = {
             "салон красоты": "beauty",
             "автоуслуги": "auto",
@@ -260,60 +273,48 @@
             });
             darkLayer.addTo(map);
             startWatchingPosition();
-            // Загружаем данные при запуске
             refreshPlaces();
             setupCompass();
-
-            // Автообновление каждые 30 секунд
-            setInterval(refreshPlaces, 30000);
+            setInterval(refreshPlaces, 30000); // автообновление каждые 30 секунд
         }
 
-        // ====== ОБНОВЛЕНИЕ ДАННЫХ С СЕРВЕРА ======
+        // Загрузка данных с API
         async function refreshPlaces() {
             try {
                 const res = await fetch(API_URL);
                 if (!res.ok) throw new Error('Ошибка загрузки');
                 const data = await res.json();
-                // Нормализуем категории
                 allPlaces = data.map(p => ({
                     ...p,
                     category: normalizeCategory(p.category) || p.category
                 }));
-                // Применяем текущий фильтр и перерисовываем
                 applyFilter(currentFilter);
             } catch (e) {
                 console.error(e);
             }
         }
 
-        // ====== ПРИМЕНЕНИЕ ФИЛЬТРА ======
         function applyFilter(filterCat) {
             currentFilter = filterCat;
-            // Обновляем активную кнопку
             document.querySelectorAll('.cat-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.cat === filterCat);
             });
-            // Рисуем маркеры с новым фильтром
             renderMarkers(filterCat);
         }
 
-        // ====== ОТРИСОВКА МАРКЕРОВ ======
+        // Отрисовка маркеров (с экранированием)
         function renderMarkers(filterCat) {
-            // Удаляем старые маркеры (кроме пользователя)
             map.eachLayer(layer => {
                 if (layer instanceof L.Marker && layer !== userMarker) {
                     map.removeLayer(layer);
                 }
             });
-            // Удаляем маршрут, если есть
             if (currentRoute) { map.removeControl(currentRoute); currentRoute = null; }
 
-            // Фильтруем точки
             const filtered = filterCat === 'all' 
                 ? allPlaces 
                 : allPlaces.filter(p => p.category === filterCat);
 
-            // Рисуем каждую точку
             filtered.forEach(place => {
                 const coords = [place.lat, place.lng];
                 const color = categoryColors[place.category] || '#007bff';
@@ -321,14 +322,23 @@
                     radius: 8, fillColor: color, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8
                 }).addTo(map);
 
-                let popup = `<b>${place.name}</b><br>${place.description}<br><b>Скидка: ${place.discount}</b><br>`;
-                if (place.contact) popup += `<b>📞 Контакт:</b> ${place.contact}<br>`;
-                if (place.expiry) {
-                    const exp = new Date(place.expiry.replace(' ', 'T'));
-                    popup += `<i>Действует до: ${exp.toLocaleString('ru-RU')}</i><br>`;
-                }
-                popup += `<button onclick="buildRouteTo([${place.lat},${place.lng}])" style="background: rgba(0,123,255,0.9); border: none; color: white; padding: 6px 14px; border-radius: 20px; backdrop-filter: blur(8px); font-weight: 600; margin-top: 4px;">🚶 Маршрут</button>`;
-                marker.bindPopup(popup);
+                // Безопасный попап
+                const safeName = escapeHtml(place.name);
+                const safeDesc = escapeHtml(place.description);
+                const safeDiscount = escapeHtml(place.discount);
+                const safeContact = escapeHtml(place.contact);
+                const expiryStr = place.expiry ? `<i>Действует до: ${new Date(place.expiry.replace(' ', 'T')).toLocaleString('ru-RU')}</i><br>` : '';
+                const contactStr = place.contact ? `<b>📞 Контакт:</b> ${safeContact}<br>` : '';
+                
+                const popupContent = `
+                    <b>${safeName}</b><br>
+                    ${safeDesc}<br>
+                    <b>Скидка: ${safeDiscount}</b><br>
+                    ${contactStr}
+                    ${expiryStr}
+                    <button onclick="buildRouteTo([${place.lat},${place.lng}])" style="background: rgba(0,123,255,0.9); border: none; color: white; padding: 6px 14px; border-radius: 20px; backdrop-filter: blur(8px); font-weight: 600; margin-top: 4px;">🚶 Маршрут</button>
+                `;
+                marker.bindPopup(popupContent);
             });
         }
 
@@ -358,6 +368,7 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
+        // Компас
         let smoothHeading = null;
         const HEADING_SMOOTH = 0.3;
 
@@ -430,7 +441,7 @@
             }
         }
 
-        // Категории
+        // Управление категориями
         function toggleCategories() {
             document.getElementById('categoryPanel').classList.toggle('open');
         }
@@ -438,7 +449,6 @@
         document.getElementById('categoryPanel').addEventListener('click', e => {
             if (e.target.classList.contains('cat-btn')) {
                 const cat = e.target.dataset.cat;
-                // При выборе категории заново загружаем данные с сервера и фильтруем
                 refreshPlaces().then(() => {
                     applyFilter(cat);
                     document.getElementById('categoryPanel').classList.remove('open');
