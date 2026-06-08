@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://mapchap.vercel.app/sitemap.xml
